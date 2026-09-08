@@ -3,7 +3,7 @@
 import logging
 from typing import Any, override
 
-from pywfrac import Aircon, AirconCommands
+from pywfrac import AIRFLOW_UNKNOWN, Aircon, AirconCommands
 
 from homeassistant.components.climate import (
     FAN_AUTO,
@@ -450,6 +450,12 @@ class AircoClimate(WfRacEntity, ClimateEntity):
         self._attr_target_temperature = airco.PresetTemp + target_offset
         # The unit's own reading, plus the calibration offset that corrects it.
         self._attr_current_temperature = airco.IndoorTemp + indoor_offset
+        # Named rather than left to index past the end of the list: the
+        # library says so itself when it could not read the unit's fan step,
+        # and a sixth fan mode here would otherwise turn that marker into a
+        # real one and lose the unknown state without a sound.
+        if airco.AirFlow == AIRFLOW_UNKNOWN:
+            raise IndexError("the unit reported a fan step pywfrac cannot read")
         self._attr_fan_mode = list(FAN_MODE_TRANSLATION.keys())[airco.AirFlow]
         self._attr_swing_mode = (
             SWING_3D_AUTO

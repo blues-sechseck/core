@@ -5,8 +5,7 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pywfrac import Aircon, RacParser, WfRacError
-from pywfrac.parser import AIRFLOW_UNKNOWN
+from pywfrac import AIRFLOW_UNKNOWN, Aircon, RacParser, WfRacError
 from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.climate import (
