@@ -55,8 +55,11 @@ async def test_user_flow(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     # Named after the unit, not by the user: the flow does not ask for a name,
-    # and nothing it stores carries one.
-    assert result["title"] == AIRCO_ID
+    # and nothing it stores carries one. Four characters of the airco id are
+    # enough to tell two units apart without putting the whole one in the
+    # device name and every entity id built from it.
+    assert result["title"] == f"WF-RAC {AIRCO_ID[-4:]}"
+    assert AIRCO_ID not in result["title"]
     assert CONF_NAME not in result["data"]
     assert result["data"][CONF_AIRCO_ID] == AIRCO_ID
     assert result["data"][CONF_HOST] == HOST

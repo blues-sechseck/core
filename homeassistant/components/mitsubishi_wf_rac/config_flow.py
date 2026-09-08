@@ -242,11 +242,15 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AVAILABILITY_RETRY_LIMIT: AVAILABILITY_FAILURE_LIMIT_MIN,
                 }
 
-                # Named after the unit's own id rather than asked for:
-                # config flows do not collect entry names, and Home
-                # Assistant's rename lets the user pick their own afterwards.
+                # Named after the unit rather than asked for: config flows do
+                # not collect entry names, and renaming is Home Assistant's
+                # own. The last four characters of the airco id are enough to
+                # tell two units apart and to match one against the label on
+                # the module, while the whole id - which diagnostics.py
+                # redacts - stays out of the device name and the entity id
+                # that people paste into issue reports.
                 return self.async_create_entry(
-                    title=info[CONF_AIRCO_ID],
+                    title=f"WF-RAC {info[CONF_AIRCO_ID][-4:]}",
                     data=data_input,
                     options=options_input,
                 )
