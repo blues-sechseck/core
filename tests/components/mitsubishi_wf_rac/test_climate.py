@@ -11,6 +11,8 @@ from syrupy.assertion import SnapshotAssertion
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
+    ATTR_MAX_TEMP,
+    ATTR_MIN_TEMP,
     ATTR_PRESET_MODE,
     ATTR_SWING_HORIZONTAL_MODE,
     ATTR_SWING_MODE,
@@ -597,6 +599,117 @@ async def test_a_setpoint_is_measured_against_the_mode_being_switched_to(
             },
             blocking=True,
         )
+
+
+async def test_the_offset_moves_the_range_the_card_offers(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+) -> None:
+    """The advertised bounds are what a user may ask for, offset included.
+
+    The device's own cooling floor is 16, but with a +1 offset a requested 16
+    is written as 15 - which the unit cannot hold. Advertising the device's
+    range and clamping afterwards accepted that request, sent 16 and read it
+    back as 17.
+    """
+    hass.config_entries.async_update_entry(
+        init_integration,
+        options={**init_integration.options, CONF_TARGET_OFFSET: 1.0},
+    )
+    await hass.async_block_till_done()
+
+    device = init_integration.runtime_data.device
+    device.airco.Operation = True
+    device.airco.OperationMode = 1
+    device.async_set_updated_data(device.airco)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.attributes[ATTR_MIN_TEMP] == 17.0
+    assert state.attributes[ATTR_MAX_TEMP] == 31.0
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_TEMPERATURE,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_TEMPERATURE: 16.0},
+            blocking=True,
+        )
+
+
+async def test_a_setpoint_at_the_offset_edge_reaches_the_unit_unclamped(
+    hass: HomeAssistant,
+    mock_repository: AsyncMock,
+    init_integration: MockConfigEntry,
+) -> None:
+    """The lowest value the card offers survives the trip to the unit and back."""
+    hass.config_entries.async_update_entry(
+        init_integration,
+        options={**init_integration.options, CONF_TARGET_OFFSET: 1.0},
+    )
+    await hass.async_block_till_done()
+
+    device = init_integration.runtime_data.device
+    device.airco.Operation = True
+    device.airco.OperationMode = 1
+    device.async_set_updated_data(device.airco)
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_TEMPERATURE,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_TEMPERATURE: 17.0},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert _sent_command(mock_repository).PresetTemp == 16.0
+
+    device.airco.PresetTemp = _sent_command(mock_repository).PresetTemp
+    device.async_set_updated_data(device.airco)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_TEMPERATURE] == 17.0
+
+
+async def test_leaving_home_leave_lands_on_the_normal_setpoint_the_card_shows(
+    hass: HomeAssistant,
+    mock_repository: AsyncMock,
+    init_integration: MockConfigEntry,
+) -> None:
+    """The restored setpoint is offset-corrected like any other.
+
+    Sent raw, the read-back would add the offset on top and leave the card
+    showing 21 plus it.
+    """
+    hass.config_entries.async_update_entry(
+        init_integration,
+        options={**init_integration.options, CONF_TARGET_OFFSET: 1.0},
+    )
+    await hass.async_block_till_done()
+
+    device = init_integration.runtime_data.device
+    device.airco.Operation = True
+    device.airco.OperationMode = 1
+    device.async_set_updated_data(device.airco)
+    await hass.async_block_till_done()
+    mock_repository.send_airco_command.reset_mock()
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_PRESET_MODE: PRESET_NONE},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert _sent_command(mock_repository).PresetTemp == 20.0
+
+    device.airco.PresetTemp = _sent_command(mock_repository).PresetTemp
+    device.async_set_updated_data(device.airco)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_TEMPERATURE] == 21.0
 
 
 async def test_the_setpoint_does_not_move_when_it_is_set_on_a_unit_that_is_off(

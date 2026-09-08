@@ -16,7 +16,6 @@ from homeassistant.const import (
     CONF_DEVICE_ID,
     CONF_FORCE_UPDATE,
     CONF_HOST,
-    CONF_NAME,
     CONF_PORT,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -32,7 +31,6 @@ from .const import (
     CONF_AVAILABILITY_RETRY_LIMIT,
     CONF_INDOOR_OFFSET,
     CONF_OPERATOR_ID,
-    CONF_OUTDOOR_OFFSET,
     CONF_TARGET_OFFSET,
     CONF_TARGET_OFFSET_COOL,
     CONF_TARGET_OFFSET_HEAT,
@@ -102,9 +100,6 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if len(data[CONF_HOST]) < 3:
             raise InvalidHost
 
-        if len(data[CONF_NAME]) < 3:
-            raise InvalidName
-
         if not data.get(CONF_FORCE_UPDATE):
             # Is this hostname or IP address already configured on a *different*
             # entry? During reconfigure, the entry being edited already owns
@@ -113,7 +108,7 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_HOST, lambda h: h == data[CONF_HOST]
             )
             if existing_entry and existing_entry.entry_id != exclude_entry_id:
-                raise HostAlreadyConfigured(error_name=existing_entry.data[CONF_NAME])
+                raise HostAlreadyConfigured(error_name=existing_entry.title)
 
         repository = Repository(
             async_get_clientsession(hass),
@@ -247,8 +242,11 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AVAILABILITY_RETRY_LIMIT: AVAILABILITY_FAILURE_LIMIT_MIN,
                 }
 
+                # Named after the unit's own id rather than asked for:
+                # config flows do not collect entry names, and Home
+                # Assistant's rename lets the user pick their own afterwards.
                 return self.async_create_entry(
-                    title=info[CONF_NAME],
+                    title=info[CONF_AIRCO_ID],
                     data=data_input,
                     options=options_input,
                 )
@@ -309,7 +307,7 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle adding device discovered by zeroconf."""
 
         description_placeholders = {
-            "id": self._discovery_info[CONF_NAME],
+            "id": self._discovery_info[CONF_AIRCO_ID],
             "host": self._discovery_info[CONF_HOST],
             "port": self._discovery_info[CONF_PORT],
         }
@@ -321,9 +319,6 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         field = partial(self._field, user_input)
         data_schema = vol.Schema(
             {
-                field(
-                    CONF_NAME, vol.Required, f"Airco {self._discovery_info[CONF_NAME]}"
-                ): str,
                 field(
                     CONF_PORT, vol.Optional, self._discovery_info[CONF_PORT]
                 ): cv.port,
@@ -356,7 +351,6 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         field = partial(self._field, user_input)
         data_schema = vol.Schema(
             {
-                field(CONF_NAME, vol.Required, "Airco unknown"): cv.string,
                 field(CONF_HOST, vol.Required): cv.string,
                 field(CONF_PORT, vol.Optional, DEFAULT_PORT): cv.port,
                 field(CONF_FORCE_UPDATE, vol.Optional, False): cv.boolean,
@@ -370,10 +364,9 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle changing an existing entry's connection details (host/port/name)."""
+        """Handle changing an existing entry's connection details (host/port)."""
         reconfigure_entry = self._get_reconfigure_entry()
         current = {
-            CONF_NAME: reconfigure_entry.data[CONF_NAME],
             CONF_HOST: reconfigure_entry.data[CONF_HOST],
             CONF_PORT: reconfigure_entry.data[CONF_PORT],
         }
@@ -381,7 +374,6 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         field = partial(self._field, user_input or current)
         data_schema = vol.Schema(
             {
-                field(CONF_NAME, vol.Required): cv.string,
                 field(CONF_HOST, vol.Required): cv.string,
                 field(CONF_PORT, vol.Optional, DEFAULT_PORT): cv.port,
             }
@@ -404,7 +396,7 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # the entry but re-point it, and the entities - whose unique
                 # ids are built from that id - would be replaced and the
                 # originals orphaned.
-                info = await self._async_register_airco(
+                await self._async_register_airco(
                     self.hass,
                     data,
                     exclude_entry_id=reconfigure_entry.entry_id,
@@ -415,7 +407,6 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 return self.async_update_reload_and_abort(
                     reconfigure_entry,
-                    title=info[CONF_NAME],
                     data=new_data,
                 )
             except KnownError as error:
@@ -473,7 +464,7 @@ class WfRacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("already configured!")
             return self.async_abort(reason="already_configured")
 
-        info[CONF_NAME] = node_name
+        info[CONF_AIRCO_ID] = node_name
         self._discovery_info = info
 
         return await self.async_step_discovery_confirm()
@@ -506,7 +497,6 @@ class WfRacOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             CONF_TARGET_OFFSET_COOL,
             CONF_TARGET_OFFSET_HEAT,
             CONF_INDOOR_OFFSET,
-            CONF_OUTDOOR_OFFSET,
         }
 
     async def async_step_init(
@@ -565,7 +555,7 @@ class WfRacOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 key,
                 default=options.get(key, 0.0),
             ): vol.All(vol.Coerce(float), vol.Range(min=-15.0, max=15.0))
-            for key in (CONF_INDOOR_OFFSET, CONF_OUTDOOR_OFFSET)
+            for key in (CONF_INDOOR_OFFSET,)
         }
 
         return self.async_show_form(
@@ -652,13 +642,6 @@ class HostAlreadyConfigured(KnownError):
 
     error_name = "host_already_configured"
     applies_to_field = CONF_HOST
-
-
-class InvalidName(KnownError):
-    """Error to indicate the name is too short."""
-
-    error_name = "name_invalid"
-    applies_to_field = CONF_NAME
 
 
 class TooManyDevicesRegistered(KnownError):

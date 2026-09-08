@@ -23,7 +23,7 @@ from . import AIRCO_ID, ENTRY_DATA, ENTRY_OPTIONS, HOST, PORT
 
 from tests.common import MockConfigEntry
 
-USER_INPUT = {CONF_NAME: "Living room", CONF_HOST: HOST, CONF_PORT: PORT}
+USER_INPUT = {CONF_HOST: HOST, CONF_PORT: PORT}
 
 
 def _discovery_info(port: int = PORT, host: str = HOST) -> ZeroconfServiceInfo:
@@ -54,7 +54,10 @@ async def test_user_flow(
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Living room"
+    # Named after the unit, not by the user: the flow does not ask for a name,
+    # and nothing it stores carries one.
+    assert result["title"] == AIRCO_ID
+    assert CONF_NAME not in result["data"]
     assert result["data"][CONF_AIRCO_ID] == AIRCO_ID
     assert result["data"][CONF_HOST] == HOST
     mock_repository.update_account_info.assert_awaited_once()
@@ -166,34 +169,24 @@ async def test_user_flow_registration_refused(
     assert result["errors"]["base"] == "cannot_connect"
 
 
-@pytest.mark.parametrize(
-    ("field", "value", "error"),
-    [
-        (CONF_HOST, "ab", "invalid_host"),
-        (CONF_NAME, "ab", "name_invalid"),
-    ],
-)
 async def test_user_flow_input_validation(
     hass: HomeAssistant,
     mock_repository: AsyncMock,
     mock_setup_entry: AsyncMock,
-    field: str,
-    value: str,
-    error: str,
 ) -> None:
-    """Host and name are checked before the airco is contacted.
+    """The host is checked before the airco is contacted.
 
-    Both errors land on their own field rather than on the form as a whole.
+    The error lands on its own field rather than on the form as a whole.
     """
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {**USER_INPUT, field: value}
+        result["flow_id"], {**USER_INPUT, CONF_HOST: "ab"}
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"][field] == error
+    assert result["errors"][CONF_HOST] == "invalid_host"
 
 
 async def test_user_flow_duplicate_host(
@@ -227,7 +220,7 @@ async def test_zeroconf_flow(
     assert result["step_id"] == "discovery_confirm"
 
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_NAME: "Living room", CONF_PORT: PORT}
+        result["flow_id"], {CONF_PORT: PORT}
     )
     await hass.async_block_till_done()
 
@@ -249,7 +242,7 @@ async def test_zeroconf_flow_port_fallback(
         DOMAIN, context={"source": SOURCE_ZEROCONF}, data=_discovery_info(port=5353)
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_NAME: "Living room", CONF_PORT: 5353}
+        result["flow_id"], {CONF_PORT: 5353}
     )
     await hass.async_block_till_done()
 
@@ -298,7 +291,7 @@ async def test_reconfigure_flow(
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_NAME: "Living room", CONF_HOST: "192.168.1.9", CONF_PORT: PORT},
+        {CONF_HOST: "192.168.1.9", CONF_PORT: PORT},
     )
     await hass.async_block_till_done()
 
@@ -319,7 +312,7 @@ async def test_options_flow(
         {
             "availability_retry_limit": 5,
             "setpoint_offsets": {"target_offset": 1.0},
-            "sensor_offsets": {"indoor_offset": -0.5, "outdoor_offset": 0.0},
+            "sensor_offsets": {"indoor_offset": -0.5},
         },
     )
     await hass.async_block_till_done()
@@ -344,7 +337,7 @@ async def test_zeroconf_flow_port_fallback_also_fails(
         DOMAIN, context={"source": SOURCE_ZEROCONF}, data=_discovery_info(port=5353)
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_NAME: "Living room", CONF_PORT: 5353}
+        result["flow_id"], {CONF_PORT: 5353}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -358,7 +351,7 @@ async def test_zeroconf_flow_port_fallback_also_fails(
         pytest.param(
             SOURCE_ZEROCONF,
             _discovery_info(),
-            {CONF_NAME: "Living room", CONF_PORT: PORT},
+            {CONF_PORT: PORT},
             id="discovered",
         ),
     ],
@@ -398,7 +391,7 @@ async def test_reconfigure_unexpected_error(
     result = await mock_config_entry.start_reconfigure_flow(hass)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_NAME: "Living room", CONF_HOST: "192.168.1.9", CONF_PORT: PORT},
+        {CONF_HOST: "192.168.1.9", CONF_PORT: PORT},
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -418,7 +411,7 @@ async def test_reconfigure_known_error(
     result = await mock_config_entry.start_reconfigure_flow(hass)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_NAME: "Living room", CONF_HOST: "192.168.1.9", CONF_PORT: PORT},
+        {CONF_HOST: "192.168.1.9", CONF_PORT: PORT},
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -542,7 +535,7 @@ async def test_options_flow_keeps_a_setting_the_form_does_not_show(
         {
             "availability_retry_limit": 3,
             "setpoint_offsets": {"target_offset": 0.0},
-            "sensor_offsets": {"indoor_offset": 0.0, "outdoor_offset": 0.0},
+            "sensor_offsets": {"indoor_offset": 0.0},
         },
     )
     await hass.async_block_till_done()
@@ -568,7 +561,7 @@ async def test_reconfigure_refuses_an_address_that_answers_as_another_airco(
 
     result = await mock_config_entry.start_reconfigure_flow(hass)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_NAME: "Living room", CONF_HOST: HOST, CONF_PORT: PORT}
+        result["flow_id"], {CONF_HOST: HOST, CONF_PORT: PORT}
     )
 
     assert result["type"] is FlowResultType.ABORT
@@ -592,7 +585,7 @@ async def test_the_port_can_be_cleared_and_falls_back_to_the_fixed_one(
         DOMAIN, context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_NAME: "Living room", CONF_HOST: HOST}
+        result["flow_id"], {CONF_HOST: HOST}
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY

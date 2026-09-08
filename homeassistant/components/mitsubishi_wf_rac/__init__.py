@@ -2,13 +2,7 @@
 
 import logging
 
-from homeassistant.const import (
-    CONF_DEVICE_ID,
-    CONF_HOST,
-    CONF_NAME,
-    CONF_PORT,
-    Platform,
-)
+from homeassistant.const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import issue_registry as ir
@@ -164,7 +158,7 @@ async def create_device_from_entry(
 ) -> Device:
     """Build the coordinator for a config entry."""
     device: str = entry.data[CONF_HOST]
-    name: str = entry.data[CONF_NAME]
+    name: str = entry.title
     device_id: str = entry.data[CONF_DEVICE_ID]
     operator_id: str = entry.data[CONF_OPERATOR_ID]
     port: int = entry.data[CONF_PORT]
@@ -194,7 +188,6 @@ async def async_unload_entry(
 ) -> bool:
     """Handle unload of entry."""
 
-    # Unload entities for this entry/device.
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     # Only tear the coordinator down once the entities are really gone: if
@@ -206,9 +199,9 @@ async def async_unload_entry(
         await data.device.async_shutdown()
 
     if unload_ok:
-        _LOGGER.info("Unloaded entry for device [%s]", entry.data[CONF_NAME])
+        _LOGGER.info("Unloaded entry for device [%s]", entry.title)
     else:
-        _LOGGER.warning("Failed to unload entry for device [%s]", entry.data[CONF_NAME])
+        _LOGGER.warning("Failed to unload entry for device [%s]", entry.title)
 
     return unload_ok
 

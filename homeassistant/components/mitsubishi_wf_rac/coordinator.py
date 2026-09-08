@@ -140,7 +140,6 @@ class Device(DataUpdateCoordinator[Aircon]):  # pylint: disable=too-many-instanc
         self._parser = RacParser()
         self._hass = hass
 
-        # Protected state
         self._airco = Aircon()
         self._operator_id = operator_id
         self._device_id = device_id
